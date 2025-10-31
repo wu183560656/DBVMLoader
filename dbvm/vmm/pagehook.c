@@ -384,6 +384,7 @@ void eptHookHandleEventBefore(pcpuinfo currentcpuinfo)
         ppte->XA = 0;
         unmapPhysicalMemory(ppte,8);
       }
+      inv = 1;
     }
   }
   if(inv)
