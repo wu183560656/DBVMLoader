@@ -5,8 +5,12 @@
 
 vmmhelper.h::tcpuinfo增加成员
 
-  int eptHookPendingID;
-  QWORD eptHookPendingRIPPfn;
+//需要两个页面，因为有可能一条指令在两个页面
+  struct
+  {
+    int ID;
+    QWORD RIPPfn;
+  }eptHookPending[2];
 */
 
 //插入到vmcall.c::_handleVMCallInstruction
