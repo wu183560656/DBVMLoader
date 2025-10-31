@@ -66,7 +66,7 @@ int handleVMEvent_amd(pcpuinfo currentcpuinfo, VMRegisters *vmregisters, FXSAVE6
     while (1);*/
 
 
-  eptHookNPEventHandle(currentcpuinfo);
+  eptHookHandleEventBefore(currentcpuinfo);
 
 
   wasStep=currentcpuinfo->singleStepping.ReasonsPos>0;

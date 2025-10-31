@@ -4681,6 +4681,7 @@ int handleVMEvent(pcpuinfo currentcpuinfo, VMRegisters *vmregisters, FXSAVE64 *f
   idtvectorinfo.idtvector_info=vmread(vm_idtvector_information);
 
 
+  eptHookHandleEventBefore(currentcpuinfo);
 
  // csEnter(&bla);
   result=handleVMEvent_internal(currentcpuinfo, vmregisters, fxsave);

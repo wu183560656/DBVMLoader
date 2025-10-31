@@ -136,11 +136,13 @@ int ept_hook_merge(QWORD Pfn)
       ppte->PFN = Pfn;
       ppte->EXB = 0;
       unmapPhysicalMemory(ppte,8);
-      //如果当前CPU正在运行这个ID
-      if(c->eptHookPendingPTE && c->eptHookPendingID == ID)
+      //如果有挂起的HOOK
+      for(int i=0;i<sizeof(c->eptHookPending)/sizeof(c->eptHookPending[0]);i++)
       {
-        unmapPhysicalMemory(c->eptHookPendingPTE,8);
-        c->eptHookPendingPTE = NULL;
+        if(c->eptHookPending[i].ID == ID + 1)
+        {
+          c->eptHookPending[i].ID = 0;
+        }
       }
     }
     else
@@ -273,7 +275,6 @@ BOOL eptHookHandleEvent(pcpuinfo currentcpuinfo, QWORD Address)
       break;
     }
   }
-
   if(ID == -1)
   {
     csLeave(&eptHookListCS);
@@ -286,20 +287,44 @@ BOOL eptHookHandleEvent(pcpuinfo currentcpuinfo, QWORD Address)
     PA_PTE = NPMapPhysicalMemory(currentcpuinfo,Address,1);
     PPTE_PAE ppte = mapPhysicalMemory(PA_PTE,8);
     //记录Pending
-    currentcpuinfo->eptHookPendingID = ID;
-    currentcpuinfo->eptHookPendingPTE = ppte;
-    currentcpuinfo->eptHookPendingPTEValue = *ppte;
-    currentcpuinfo->eptHookPendingRIPPfn = currentcpuinfo->vmcb->RIP >> 12;
+    for(int i=0;i<sizeof(currentcpuinfo->eptHookPending)/sizeof(currentcpuinfo->eptHookPending[0]);i++)
+    {
+      if(!currentcpuinfo->eptHookPending[i].ID)
+      {
+        currentcpuinfo->eptHookPending[i].ID = ID + 1;
+        currentcpuinfo->eptHookPending[i].RIPPfn = currentcpuinfo->vmcb->RIP >> 12;
+        break;
+      }
+    }
     //将pfn切换为执行页面,并设置为可执行属性
     ppte->PFN = eptHookList[ID].ExecutePfn;
+    ppte->P = 1;
+    ppte->RW = 1;
     ppte->EXB = 0;
-    //当RIP跳出当前页面后下次VMExit时恢复
+    unmapPhysicalMemory(ppte,8);
   }
   else
   {
-    evi.ExitQualification=vmread(vm_exit_qualification);
     PA_PTE = EPTMapPhysicalMemory(currentcpuinfo,Address,1);
     PEPT_PTE ppte = mapPhysicalMemory(PA_PTE,8);
+    
+    //记录Pending
+    for(int i=0;i<sizeof(currentcpuinfo->eptHookPending)/sizeof(currentcpuinfo->eptHookPending[0]);i++)
+    {
+      if(!currentcpuinfo->eptHookPending[i].ID)
+      {
+        currentcpuinfo->eptHookPending[i].ID = ID + 1;
+        currentcpuinfo->eptHookPending[i].RIPPfn = vmread(vm_guest_rip) >> 12;
+        break;
+      }
+    }
+    //将pfn切换为执行页面,并设置为可执行属性
+    ppte->PFN = eptHookList[ID].ExecutePfn;
+    ppte->RA = 1;
+    ppte->WA = 1;
+    ppte->XA = 1;
+    
+   /*
     if(evi.X && !evi.WasExecutable)
     {
       ppte->RA = 0;
@@ -314,6 +339,7 @@ BOOL eptHookHandleEvent(pcpuinfo currentcpuinfo, QWORD Address)
       ppte->XA = 0;
       ppte->PFN = eptHookList[i].Pfn;
     }
+      */
     unmapPhysicalMemory(ppte,8);
   }
   csLeave(&currentcpuinfo->EPTPML4CS);
@@ -323,21 +349,47 @@ BOOL eptHookHandleEvent(pcpuinfo currentcpuinfo, QWORD Address)
   return TRUE;
 }
 
-void eptHookNPEventHandle(pcpuinfo currentcpuinfo)
+void eptHookHandleEventBefore(pcpuinfo currentcpuinfo)
 {
+  int inv = 0;
   csEnter(&currentcpuinfo->EPTPML4CS);
-  if(currentcpuinfo->eptHookPendingPTE)
+  QWORD rip = isAMD ? currentcpuinfo->vmcb->RIP : vmread(vm_guest_rip);
+  for(int i=0;i<sizeof(currentcpuinfo->eptHookPending)/sizeof(currentcpuinfo->eptHookPending[0]);i++)
   {
-    QWORD rip = isAMD ? currentcpuinfo->vmcb->RIP : vmread(vm_guest_rip);
-    if(currentcpuinfo->eptHookPendingRIPPfn != (rip >> 12))
+    if(currentcpuinfo->eptHookPending[i].ID
+      && (rip>>12) != currentcpuinfo->eptHookPending[i].RIPPfn
+      && ((rip+16)>>12) != currentcpuinfo->eptHookPending[i].RIPPfn)
     {
+      int ID = currentcpuinfo->eptHookPending[i].ID - 1;
+      currentcpuinfo->eptHookPending[i].ID = 0;
       sendstring("eptHookNPEventHandle restore PTE\n");
-      *currentcpuinfo->eptHookPendingPTE = currentcpuinfo->eptHookPendingPTEValue;
-      unmapPhysicalMemory(currentcpuinfo->eptHookPendingPTE,8);
-      _wbinvd();
-      ept_invalidate();
-      currentcpuinfo->eptHookPendingPTE = NULL;
+      QWORD PA_PTE;
+      if(isAMD)
+      {
+        PA_PTE = NPMapPhysicalMemory(currentcpuinfo,eptHookList[ID].Pfn<<12,1);
+        PPTE_PAE ppte = mapPhysicalMemory(PA_PTE,8);
+        ppte->PFN = eptHookList[ID].Pfn;
+        ppte->P = 1;
+        ppte->RW = 1;
+        ppte->EXB = 1;
+        unmapPhysicalMemory(ppte,8);
+      }
+      else
+      {
+        PA_PTE = EPTMapPhysicalMemory(currentcpuinfo,eptHookList[ID].Pfn<<12,1);
+        PEPT_PTE ppte = mapPhysicalMemory(PA_PTE,8);
+        ppte->PFN = eptHookList[ID].Pfn;
+        ppte->RA = 1;
+        ppte->WA = 1;
+        ppte->XA = 0;
+        unmapPhysicalMemory(ppte,8);
+      }
     }
+  }
+  if(inv)
+  {
+    _wbinvd();
+    ept_invalidate();
   }
   csLeave(&currentcpuinfo->EPTPML4CS);
 }

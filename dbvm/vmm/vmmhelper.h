@@ -674,10 +674,11 @@ typedef volatile struct tcpuinfo
   int WaitTillDone;
   int WaitingTillDone;
 #endif
-  int eptHookPendingID;
-  PPTE_PAE eptHookPendingPTE;
-  _PTE_PAE eptHookPendingPTEValue;
-  QWORD eptHookPendingRIPPfn;
+  struct
+  {
+    int ID;
+    QWORD RIPPfn;
+  }eptHookPending[2];
 } tcpuinfo, *pcpuinfo; //allocated when the number of cpu's is known
 
 typedef struct

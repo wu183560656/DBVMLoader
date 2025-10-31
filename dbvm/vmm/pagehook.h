@@ -6,8 +6,6 @@
 vmmhelper.h::tcpuinfo增加成员
 
   int eptHookPendingID;
-  PPTE_PAE eptHookPendingPTE;
-  _PTE_PAE eptHookPendingPTEValue;
   QWORD eptHookPendingRIPPfn;
 */
 
@@ -15,7 +13,7 @@ vmmhelper.h::tcpuinfo增加成员
 void eptHookVMCALL(pcpuinfo currentcpuinfo, VMRegisters *vmregisters, ULONG *vmcall_instruction);
 //插入到epthandler.c::handleEPTViolation、nphandler.c::handleNestedPagingFault
 BOOL eptHookHandleEvent(pcpuinfo currentcpuinfo, QWORD Address);
-//插入到 vmeventhandler_amd.c::handleVMEvent_amd
-void eptHookNPEventHandle(pcpuinfo currentcpuinfo);
+//插入到vmeventhandler_amd.c::handleVMEvent_amd、vmeventhandler.c::handleVMEvent
+void eptHookHandleEventBefore(pcpuinfo currentcpuinfo);
 
 #endif
